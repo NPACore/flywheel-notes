@@ -1,0 +1,103 @@
+{
+      "id": "reproin_func_file",
+      "template": "func_file",
+      "where": {
+        "container_type": "file",
+        "parent_container_type": "acquisition",
+        "file.type": {
+          "$in": [
+            "nifti",
+            "NIfTI",
+            "source code",
+            "JSON"
+          ]
+        },
+        "file.classification.Intent": {
+          "$in": [
+            "Functional"
+          ]
+        },
+        "acquisition.label": {
+          "$regex": "(?!.*PhysioLog.*).*(func((-|_).+|$))"
+        }
+      },
+      "initialize": {
+        "Task": {
+          "acquisition.label": {
+            "$regex": "(^|_)task-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Acq": {
+          "acquisition.label": {
+            "$regex": "(^|_)acq-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Ce": {
+          "acquisition.label": {
+            "$regex": "(^|_)ce-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Rec": {
+          "acquisition.label": {
+            "$regex": "(^|_)rec-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Dir": {
+          "acquisition.label": {
+            "$regex": "(^|_)dir-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Run": {
+          "acquisition.label": {
+            "$regex": [
+              "(^|_)run-(?P<value>\\d+)(_|$)",
+              "(^|_)run-(?P<value>[=+])(_|$)"
+            ]
+          },
+          "$run_counter": {
+            "key": "func.{file.info.BIDS.Task}.{file.info.BIDS.Suffix}.{file.type}"
+          }
+        },
+        "Echo": {
+          "file.name": {
+            "$regex": "^.*_e(?P<value>\\d+)(\\.nii.*|\\.json)$",
+            "$format": [
+              {
+                "$replace": {
+                  "$pattern": "^(\\d{1})$",
+                  "$replacement": "0\\1"
+                }
+              }
+            ]
+          }
+        },
+        "Part": {
+          "acquisition.label": {
+            "$regex": "(^|_)part-(?P<value>.*?)(_(acq|ce|dir|echo|mod|proc|part|rec|recording|run|task)-|$|_)"
+          }
+        },
+        "Suffix": {
+          "$switch": {
+            "$on": "acquisition.label",
+            "$cases": [
+              {
+                "$regex": ".*_SBRef$|.*_sbref$",
+                "$value": "sbref"
+              },
+              {
+                "$regex": ".*_cbv$",
+                "$value": "cbv"
+              },
+              {
+                "$regex": ".*_phase$",
+                "$value": "phase"
+              },
+              {
+                "$default": true,
+                "$value": "bold"
+              }
+            ]
+          }
+        }
+      }
+    }
