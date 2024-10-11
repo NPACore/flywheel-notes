@@ -1,0 +1,214 @@
+#+Title: BIDSify non-reproin session
+#+OPTIONS: ^:nil
+
+I'm trying to BIDS-ify a non-reproin dataset using a json template based on those in [[https://gitlab.com/flywheel-io/public/bids-client/-/tree/master/flywheel_bids/templates/flywheel_curated][bids-client's flywheel_curated template folder]] and the curate-bids gear.
+
+There are a few components to address
+ 1. extract ~Task~ name from EPI sequences
+ 2. truncate ~sub~ to excluded date
+    * and maybe later translate date to a session number
+ 3. dealing with multiecho resting state
+ 4. intended for
+
+I'm starting (<2024-10-10 Thu>) with the first: extracting task name so ~HabitTask.nii.gz~ becomes ~sub-xxx_task-habit_bold.nii.gz~. To do this, I'm hoping to extract ~Task~ with ~$regexp~'s value capture group. But the gear fails with "34 duplicated BIDS paths."
+
+* Questions
+
+** Docs
+Is there a good way to go about debugging this? Some documentation I missed?
+
+
+** Iteration: load_template().rules not updated?
+I'm also hoping to find a workflow to debug template.json's for many projects. To that end, I'm trying to use ~flywheel_bids.supporting_files.templates.load_template~ and ~flywheel_bids.supporting_files.bidsify_flywheel.process_matching_templates~or ~create_match_info_update~ to avoid uploading and rerunning gears.
+
+
+But currently ~load_template~'s ~rules~ list does not contain changes to the base template in the provided input json. ~initializer_map~ does though. Is that expected?
+
+* Input Template
+
+#+begin_src bash :results verbatim :exports both
+jq '.initializers[]|select(.rule == "bids_func_file")|.initialize' < ./pitt-luna-habit-project-template.json
+#+end_src
+
+#+RESULTS:
+: {
+:   "Task": {
+:     "acquisition.label": {
+:       "$regex": "(?P<value>Habit|Rest|Antisaccade)"
+:     }
+:   }
+: }
+
+
+
+* COMMENT init
+
+#+begin_src python :session :results none
+import flywheel
+import re
+from sspipe import p, px
+fw = flywheel.Client()
+def println(x):
+    return "\n".join(x)
+#+end_src
+
+
+* Log
+
+When I run the curate-bids gear with the above template, the gear fails: "34 duplicated BIDS paths" in a session 37 acquisitions.
+
+#+begin_src python :session  :exports both :results value verbatim
+cb_log = fw.get_job_logs("670830b2b38c56e401b1c2ce")
+select_msgs = [re.sub("\n","",x.msg)
+  for x in cb_log['logs']
+  if re.search('(task|Habit).*nii|duplicate', x.msg)]
+"\n".join(select_msgs)
+#+end_src
+
+#+RESULTS:
+: [6479ms   INFO     ]  13_HabitTask_SBRef_HabitTask_20240314083922_13.nii.gz matches container template func_file bids_func_file
+: [6481ms   INFO     ]  14_HabitTask_HabitTask_20240314083922_14.nii.gz matches container template func_file bids_func_file
+: [11430ms   INFO     ]    sub-1200120240314/func/sub-1200120240314_task-{file.info.BIDS.Task}_bold.nii.gz
+: [11431ms   INFO     ]    sub-1200120240314/func/sub-1200120240314_task-{file.info.BIDS.Task}_sbref.nii.gz
+: [11431ms   ERROR    ]  34 duplicate BIDS paths were detected
+
+#+begin_src python :session :exports none :results none
+with open('01-issue_curatebidslog-670830b2b38c56e401b1c2ce.log','w') as f:
+    f.write("\n".join(cb_log['logs']))
+#+end_src
+
+
+#+begin_src python :session :exports both :results verbatim
+curate_bids_example = fw.get_job("670830b2b38c56e401b1c2ce")
+{
+ 'input template': curate_bids_example.config.inputs['template']['location']['name'],
+ 'gear info': curate_bids_example.outputs[0].gear_info,
+}
+#+end_src
+
+#+RESULTS:
+: {'input template': 'pitt-luna-habit-project-template.json', 'gear info': {'id': '6705d6b684c4657bdaefcecc',
+:  'name': 'curate-bids',
+:  'version': '2.2.10_1.2.24'}}
+
+* Session acquisitions
+
+Each session will have 3 epi/bold tasks, two of those are repeated
+#+begin_src python :session :output table :exports both
+res = fw.search({'structured_query':
+                 """group.label = "MRRC" AND \
+                  project.label LIKE "wpc-8620" AND
+                 (acquisition.label LIKE "*Habit*" OR
+                  acquisition.label LIKE "*Rest*" OR
+                  acquisition.label LIKE "*ABCD_T1w_MPR_vNav" OR
+                  acquisition.label LIKE "*Antisaccade*"  )""",
+                 'return_type': 'acquisition'})
+[[x.subject.code] + x.acquisition.label.split(" - ") for x in res if x.session.id == "65df8cc3aac20c7bae9057a1"] |\
+  p(sorted, key=lambda x: int(x[1]))
+#+end_src
+
+#+RESULTS:
+| 11998_20240215 |  4 | ABCD_T1w_MPR_vNav                |
+| 11998_20240215 |  5 | ABCD_T1w_MPR_vNav                |
+| 11998_20240215 |  8 | Resting-state_ME_SBRef           |
+| 11998_20240215 |  9 | Resting-state_ME                 |
+| 11998_20240215 | 13 | HabitTask_SBRef                  |
+| 11998_20240215 | 14 | HabitTask                        |
+| 11998_20240215 | 16 | RewardedAntisaccade_SBRef        |
+| 11998_20240215 | 17 | RewardedAntisaccade              |
+| 11998_20240215 | 19 | RewardedAntisaccade_repeat_SBRef |
+| 11998_20240215 | 20 | RewardedAntisaccade_repeat       |
+| 11998_20240215 | 22 | Resting-state_ME_repeat_SBRef    |
+| 11998_20240215 | 23 | Resting-state_ME_repeat          |
+
+* Python package confusion
+
+To try to debug and iterate quickly, I'm trying to inspect ~flywheel_bids.supporting_files.templates.load_template~. I see my template changes in ~initializer_map~ but the ~rules~ part of the object is unchanged.
+
+#+begin_src python :session :results none :exports both
+from flywheel_bids.supporting_files.templates import load_template
+template_path="./pitt-luna-habit-project-template.json"
+template = load_template(template_path, template_name="mytemplate", save_sidecar_as_metadata=True)
+#+end_src
+
+It looks like I've at least got the format correct enough for ~initializer_map~ to have what I expect. The ~bids_func_file~ rule has a new regex
+
+#+begin_src python :session :results verbatim :exports both
+template.initializer_map['bids_func_file'][0]['initialize']["Task"]
+#+end_src
+
+#+RESULTS:
+: {'acquisition.label': {'$regex': '^(?P<value>Habit|Rest|AntiSaccade)'}}
+
+And my new rule id ~bids_func_file_anti~ is also loaded.
+
+#+begin_src python :session :results verbatim :exports both
+template.initializer_map['bids_func_file_anti']
+#+end_src
+
+#+RESULTS:
+: [{'where': {'container_type': 'file', 'file.type': {'$in': ['nifti', 'NIfTI']}, 'acquisition.label': {'$regex': 'AntiSaccade'}}, 'initialize': {'Task': {'acquisition.label': {'$regex': '^(?P<value>AntiSaccade)'}}, 'Run': {'acquisition.label': {'$regex': '_(?P<value>repeat)', '$format': [{'$replace': {'$pattern': 'repeat', '$replacement': '2'}}]}}}}]
+
+** No new rules
+~template.rules~ only includes ~bids_func_file~ (missing ~bids_func_file_anit~) and it's ~$regexp~ is the template base, not in the new json input.
+#+begin_src python :session :results verbatim :exports both
+{x.id: x.initialize.get("Task") for x in template.rules if re.search("func",x.id)}
+#+end_src
+
+#+RESULTS:
+: {'bids_func_file': {'acquisition.label': {'$regex': '(^|_)task-(?P<value>[^-_]+)'}}}
+
+** current iterative testing
+Ideally, we could quickly test rules without having to upload and rerun the bids-curate gear by using ~load_template~ and ~create_match_info_update~
+
+Pulling from
+~context~ from [[file:bids-client/tests/test_bidsify_flywheel.py::104]] and ~classification~ criteria from
+[[file:bids-client/flywheel_bids/templates/bids-v1.json::777]]
+
+But we see a failure to match (~Unable to match regex <['(^|_)task-(?P<value>[^-_]+)']> to <14 - HabitTask>~) using the wrong ~bids_file_func~ regexp. Expect .
+
+#+begin_src python :session :results output verbatim :exports both
+
+from flywheel_bids.supporting_files.bidsify_flywheel import  create_match_info_update
+rules_dict = {rule.id: rule for rule in template.rules}
+rule_id = 'bids_func_file'
+
+rule = rules_dict[rule_id]
+# bids-client/tests/test_bidsify_flywheel.py:104
+context = {
+    "container_type": "file",
+    "parent_container_type": "project",
+    "project": {"label": "project123"},
+    "subject": {"code": "00123"},
+    "session": {"label": "session444"},
+    # "acquisition.label" $regex in new json template
+    "acquisition": {"label": "14 - HabitTask"},
+    # criteria from
+    # bids-client/flywheel_bids/templates/bids-v1.json:777
+    "file": {"classification": {"Intent": "Functional"}},
+    "ext": ".nii.gz",
+}
+
+template_def = template.definitions.get(rule.template)
+match_info = create_match_info_update(rule, context, context['file'], template_def["properties"], "BIDS")
+rule.initializeProperties(match_info, context)
+template.apply_custom_initialization(rule.id, match_info, context)
+
+print("\n# not populated")
+print(context['file']['info']['BIDS'])
+#+end_src
+
+#+RESULTS:
+: DEBUG:curate-bids:Unable to match regex <['(^|_)task-(?P<value>[^-_]+)']> to <14 - HabitTask>
+: DEBUG:curate-bids:Unable to match regex <['(^|_)run-(?P<value>\\d+)', '(^|_)run(?P<value>[=+])']> to <14 - HabitTask>
+: DEBUG:curate-bids:value is 14 - HabitTask
+: DEBUG:curate-bids:no match for .*_SBRef$|.*_sbref$ for value sbref
+: DEBUG:curate-bids:Unable to match switch case {'$on': 'acquisition.label', '$cases': [{'$regex': '.*_SBRef$|.*_sbref$', '$value': 'sbref'}]}
+:
+: # not populated
+: {'template': 'func_file', 'rule_id': 'bids_func_file', 'Filename': '', 'Folder': 'func', 'Path': '', 'Acq': '', 'Task': '', 'Rec': '', 'Run': '', 'Echo': '', 'Modality': 'bold', 'ignore': False}
+
+* Local Variables :noexport:
+# Local Variables:
+# org-export-with-broken-links: t
+# End:

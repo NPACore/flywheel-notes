@@ -1,0 +1,89 @@
+{
+  "extends": "bids-v1",
+  "description": "Additional rules for matching Luna_Habit data",
+  "exclude_rules": [],
+  "definitions": {
+    "session": {
+      "description": "BIDS session template",
+      "properties": {
+        "Label": {
+          "type": "string",
+          "title": "Label",
+          "default": ""
+        },
+        "Subject": {
+          "type": "string",
+          "title": "Subject Code",
+          "default": "",
+          "auto_update": "<subject.code>"
+        }
+      },
+      "required": []
+    }
+  },
+  "rules": [],
+    "initializers": [
+        {
+            "rule": "bids_func_file_anti",
+            "where": {
+                "container_type": "file",
+                "file.type": {
+                    "$in": [
+                        "nifti",
+                        "NIfTI"
+                    ]},
+                "acquisition.label": {
+                    "$regex": "AntiSaccade"
+                }},
+            "initialize": {
+                "Task": {
+                    "acquisition.label": {
+                        "$regex": "^(?P<value>AntiSaccade)"
+                    }
+                },
+                "Run": {
+                    "acquisition.label": {
+                        "$regex": "_(?P<value>repeat)",
+                        "$format": [
+                            {
+                                "$replace": {
+                                    "$pattern": "repeat",
+                                    "$replacement": "2"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        { "rule": "bids_func_file",
+          "initialize": {
+              "Task": {
+                  "acquisition.label": {
+                      "$regex": "(?P<value>Habit|Rest|Antisaccade)"
+                  }
+              }
+          }
+        },
+        {
+            "rule": "bids_fieldmap_file",
+            "initialize": {
+                "IntendedFor": [
+                    {
+                        "Folder": "func"
+                    }
+                ]
+            }
+        },
+        {
+            "rule": "bids_fieldmap_phase_encoded_file",
+            "initialize": {
+                "IntendedFor": [
+                    {
+                        "Folder": "func"
+                    }
+                ]
+            }
+        }
+    ]
+}
