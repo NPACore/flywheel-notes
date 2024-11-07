@@ -1,0 +1,54 @@
+{
+  "extends": "reproin",
+  "description": "Additional rules for matching Luna_Habit data",
+  "rules": [{
+      "id": "AntiSaccade",
+      "template": "func_file",
+      "where": {
+        "container_type": "file",
+        "parent_container_type": "acquisition",
+        "file.type": {
+          "$in": [
+            "nifti",
+            "NIfTI",
+            "source code",
+            "JSON"
+          ]
+        },
+        "file.classification.Intent": {"$in": ["Functional"]},
+        "acquisition.label": {"$regex": "(?!.*PhysioLog.*)AntiSaccade"}
+      }, "initialize": {
+        "Task": {"acquisition.label": {"$regex": "(?P<value>AntiSaccade)"}
+        },
+        "Run": {"acquisition.label": {"$regex": "(?P<value>repeat|AntiSaccade)(_SBRef)?$",
+                                      "$format": [{"$replace": {
+                                          "$pattern": "repeat",
+                                          "$replacement": "2"
+                                      }},{"$replace": {
+                                          "$pattern": "AntiSaccade",
+                                          "$replacement": "1"
+                                      }}]
+           },
+        "$run_counter": {
+            "key": "func.{file.info.BIDS.Task}.{file.info.BIDS.Suffix}.{file.type}"
+          }
+        },
+        "Suffix": {
+          "$switch": {
+            "$on": "acquisition.label",
+            "$cases": [
+              {
+                "$regex": ".*_SBRef$|.*_sbref$",
+                "$value": "sbref"
+              },
+              {
+                "$default": true,
+                "$value": "bold"
+              }
+            ]
+          }
+        }
+      }
+    }
+]
+}
