@@ -1,5 +1,5 @@
 {
-  "extends": "bids-v1",
+  "extends": "reproin",
   "description": "Additional rules for matching Luna_Habit data",
   "exclude_rules": [],
   "definitions": {
@@ -21,69 +21,65 @@
       "required": []
     }
   },
-  "rules": [],
-    "initializers": [
-        {
-            "rule": "bids_func_file_anti",
-            "where": {
-                "container_type": "file",
-                "file.type": {
-                    "$in": [
-                        "nifti",
-                        "NIfTI"
-                    ]},
-                "acquisition.label": {
-                    "$regex": "AntiSaccade"
-                }},
-            "initialize": {
-                "Task": {
-                    "acquisition.label": {
-                        "$regex": "^(?P<value>AntiSaccade)"
-                    }
-                },
-                "Run": {
-                    "acquisition.label": {
-                        "$regex": "_(?P<value>repeat)",
-                        "$format": [
-                            {
-                                "$replace": {
-                                    "$pattern": "repeat",
-                                    "$replacement": "2"
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
+  "rules": [{
+      "id": "AntiSaccade",
+      "template": "func_file",
+      "where": {
+        "container_type": "file",
+        "parent_container_type": "acquisition",
+        "file.type": {
+          "$in": [
+            "nifti",
+            "NIfTI"
+          ]
         },
-        { "rule": "bids_func_file",
-          "initialize": {
-              "Task": {
-                  "acquisition.label": {
-                      "$regex": "(?P<value>Habit|Rest|Antisaccade)"
-                  }
-              }
+        "file.classification.Intent": {
+          "$in": [
+            "Functional"
+          ]
+        },
+        "acquisition.label": {
+          "$regex": "(?!.*PhysioLog.*)AntiSaccade"
+        }
+      },
+      "initialize": {
+        "Task": {
+          "acquisition.label": {
+            "$regex": "(?P<value>AntiSaccade)"
           }
         },
-        {
-            "rule": "bids_fieldmap_file",
-            "initialize": {
-                "IntendedFor": [
-                    {
-                        "Folder": "func"
-                    }
-                ]
-            }
+        "Run": {
+           "acquisition.label": {
+               "$regex": "_(?P<value>repeat)",
+               "$format": [
+                   {
+                       "$replace": {
+                           "$pattern": "repeat",
+                           "$replacement": "2"
+                       }
+                   }
+               ]
+           },
+        "$run_counter": {
+            "key": "func.{file.info.BIDS.Task}.{file.info.BIDS.Suffix}.{file.type}"
+          }
         },
-        {
-            "rule": "bids_fieldmap_phase_encoded_file",
-            "initialize": {
-                "IntendedFor": [
-                    {
-                        "Folder": "func"
-                    }
-                ]
-            }
+        "Suffix": {
+          "$switch": {
+            "$on": "acquisition.label",
+            "$cases": [
+              {
+                "$regex": ".*_SBRef$|.*_sbref$",
+                "$value": "sbref"
+              },
+              {
+                "$default": true,
+                "$value": "bold"
+              }
+            ]
+          }
         }
-    ]
+      }
+    }
+]
 }

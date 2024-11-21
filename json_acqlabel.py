@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
-import argparse
+"""
+CLI tool for checking template json file against potential stringified inputs.
+
+Run like::
+  ./flycheck_json_acqlabel.py \
+        -t pitt-luna-habit-project-template.json \
+        -r AntiSaccade,Habit \
+        "13 - AntiSaccade" \
+        "14 - AntiSaccade_repeat_SBRef::Functional::.json"
+
+Yields rows of matchies.
+The first column is input string, second column is BIDS file form::
+  13 - AntiSaccade        sub-{session.info.BIDS.Subject}_task-AntiSaccade_bold.nii.gz
+  14 - AntiSaccade_repeat_SBRef::Functional::.json        sub-{session.info.BIDS.Subject}_task-AntiSaccade_run-2_sbref.json
+
+"""
 import logging
 import os
 
@@ -9,12 +24,19 @@ from flywheel_bids.supporting_files.bidsify_flywheel import (
 )
 from flywheel_bids.supporting_files.templates import load_template
 
-logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
 
 
-def make_context(label, intent="Functional", ext=".nii.gz"):
+#: ``Label`` and ``FileTemplate`` mock template input/output
+Label = str
+FileTemplate = str
+
+def make_context(label: str, intent="Functional", ext=".nii.gz") -> dict:
     """
     Make a phony context using the label and maybe intent and/or ext
+    :param label: label Flywheel would set likely from SeriesName dicom header
+    :param intent: e.g. "Functional", "Structural"
+    :param ext: file extension as would be parsed by flywheel.
+    :return: very light mock context container
     """
     context = {
         "container_type": "file",
@@ -27,16 +49,18 @@ def make_context(label, intent="Functional", ext=".nii.gz"):
     return context
 
 
-# types for simuated output dictionary
-Label = str
-FileTemplate = str
 
 
 def simulate_output(
     json_fname: os.PathLike, labels: list[Label], rule_ids: list[str]
 ) -> dict[Label, FileTemplate]:
     """
-    Run example labels against
+    Run example labels against template for at provided rules.
+
+    :param json_fname: input template json file to test
+    :param labels: list of labels for the template to check
+    :param rule_ids: list of template rules
+    :return outputs:
     """
 
     template = load_template(
@@ -70,7 +94,14 @@ def simulate_output(
     return outputs
 
 
-if __name__ == "__main__":
+def template_check():
+    """
+    Command line argument aware entry point for py:func:`simulate_output`.
+    """
+
+    import argparse
+    loglevel = os.environ.get("LOGLEVEL", "WARN").upper()
+    logging.getLogger().setLevel(loglevel)
 
     parser = argparse.ArgumentParser(
         description="Check labels against a flywheel template json file.",
@@ -101,6 +132,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     rule_ids = args.rule_id.split(",") if args.rule_id else []
-    filenames = simulate_output(args.template, args.labels, args.rule_id)
+    filenames = simulate_output(args.template, args.labels, rule_ids)
+
+    # if verbose logging, hard to see where actual output is
+    logging.info("#### MATCHES below ####")
     # tab separate
     print("\n".join([f"{k}\t{v}" for k, v in filenames.items()]))
+
+
+if __name__ == "__main__":
+    template_check()
